@@ -44,7 +44,7 @@ This project provides a simple pipeline for segmenting lumen cavities from 3D `.
 11. Go to File > Save Selected Layer(s) and choose the Labels layer.
 
 
-## Outer cavity segmentation (with Napari/nnInteractive)
+## Outer lumen wall segmentation (with Napari/nnInteractive)
 The setup and workflow are the same as the Inner cavity segmentation section, with just a few differences:
 - Use ~3–5 positive points per lumen (more than for inner) to fill the entire outer boundary (including the inner cavity too).
 - Save each lumen as its own file:
@@ -71,7 +71,7 @@ The setup and workflow are the same as the Inner cavity segmentation section, wi
 Note: the output is a csv file with one row each lumen and columns representing the parameters for both the inner and outer ellipse
    
 ---
-## [deprecated] Outer cavity segmentation (with thresholding) - alternative to Napari
+## [deprecated] Outer lumen wall segmentation (with thresholding) - alternative to Napari
 1. Export the path to the raw image
    ```
    export IMAGE_PATH="..." 
