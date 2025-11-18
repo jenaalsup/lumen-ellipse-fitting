@@ -1,49 +1,43 @@
-#!/usr/bin/env python
+"""
+3D Ellipsoid Fitting to Lumenoids (already segmented)
+Adapted from script by Ilya Schneider and Roman Vetter
 
-# Original author: Ilya Schneider: schnil1010@gmail.com, +34654455293 (WhatsApp), +41762292666 (Phone calls)
-# Modifications by: Dr. Roman Vetter, vetterro@ethz.ch
+Prerequisites
+-------------
+pip install tifffile pandas numpy matplotlib pyvista trimesh pymeshfix napari
+export SEGMENTATION_DIR="..." # path to the segmentation directory e.g. /Users/jenaalsup/Desktop/analysis/nn_interactive/output_differentiation/second_batch/d2_out
+
+python3 image_analysis.py
+"""
 
 import os
-
 import tifffile
-
 import pandas as pd
-
 import numpy as np
 from numpy.linalg import eig, inv
-
 from scipy.optimize import minimize
 from scipy.ndimage import binary_fill_holes
-from scipy.spatial import cKDTree
-        
+from scipy.spatial import cKDTree 
 from skimage import exposure, draw
 from skimage.filters import threshold_otsu, gaussian
 from skimage.measure import label, regionprops, regionprops_table, marching_cubes
 from skimage.morphology import remove_small_objects, binary_opening, binary_closing, binary_erosion, binary_dilation, disk
 from skimage.segmentation import clear_border, find_boundaries
-
 import matplotlib.pyplot as plt
-
 import h5py
-
 import pyvista as pv
-
 import trimesh
 from trimesh import Trimesh
 from trimesh.smoothing import filter_mut_dif_laplacian
-
 import pymeshfix
-
 import napari
 
-
-## Script options
-
-# The input directory holding the images to process
-segmentation_dir = "nn_interactive/output_differentiation/second_batch/d2_out"
-
-# The output file for all the quantifications
-csv_file = "lumenoids_data_d2_2.csv"
+# --------------------------------------------------- #
+# Config
+# --------------------------------------------------- #
+segmentation_dir = os.environ.get("SEGMENTATION_DIR", "/Users/jenaalsup/Desktop/segmentation-testing/CKHRJQ~0.tif")
+_base_name = os.path.basename(os.path.normpath(segmentation_dir))
+csv_file = f"{_base_name}_results.csv" # output file derived from input directory name
 
 # The voxel size in µm (check in the properties of the tiff file in ImageJ)
 voxel_size_um = np.array([0.568, 0.455, 0.455], dtype=float)
@@ -61,7 +55,7 @@ imaging_day = 2
 view_binary_images = False
 view_slices = False
 view_in_napari = False
-view_result = True
+view_result = False
 
 
 ## Make the final output df with all the data about vesicles
@@ -92,7 +86,7 @@ def create_individual_binary_stacks(folder_path, output_folder=None, view_binary
     - Non-overlapping object pixels = White (1)
     - Overlapping object pixels = Black (0, background)
     - Background = Black (0)
-    - Removes elements from the file containing "0000" in its name
+    - Removes elements from the file containing "inner_labels" in its name
     
     Args:
         folder_path (str): Path to directory containing TIFF files
@@ -101,25 +95,32 @@ def create_individual_binary_stacks(folder_path, output_folder=None, view_binary
     
     Returns:
         list: List of binary stacks (z, y, x) where 1=white (non-overlapping), 0=black (background/overlap)
-               One stack per input file (excluding the "0000" file)
+               One stack per input file (excluding the "inner_labels" file)
     """
     # Get all TIFF files
     tiff_files = [f for f in os.listdir(folder_path) if f.lower().endswith(('.tif', '.tiff'))]
     tiff_files.sort()
+    print(f"[INFO] Scanning TIFFs in: {folder_path}")
+    for f in tiff_files:
+        print(f"[INFO] Found TIFF: {os.path.join(folder_path, f)}")
     
     if not tiff_files:
         raise ValueError("No TIFF files found in the specified directory")
 
-    # Identify and load the base file (containing "0000")
+    # Identify and load the base file; require a file containing "inner_labels"
     base_images = None
     base_filename = None
     for filename in tiff_files:
-        if "0000" in filename:
+        if "inner_labels" in filename.lower():
             base_filename = filename
             filepath = os.path.join(folder_path, filename)
             with tifffile.TiffFile(filepath) as tif:
                 base_images = tif.asarray()
+            print(f"[INFO] Using base/reference (excluded from processing): {filepath}")
             break
+    if base_filename is None:
+        print(f"[INFO] Skipping folder (no file including 'inner_labels' found): {folder_path}")
+        return []
     
     # Load all other files (excluding base)
     processed_stacks = []
@@ -128,6 +129,7 @@ def create_individual_binary_stacks(folder_path, output_folder=None, view_binary
             continue  # Skip the base file
             
         filepath = os.path.join(folder_path, filename)
+        print(f"[INFO] Processing TIFF: {filepath}")
         with tifffile.TiffFile(filepath) as tif:
             stack = tif.asarray()
             
@@ -525,99 +527,64 @@ def create_ellipsoid(center, radii, rotation, color=[255, 0, 255, 100]):
 ## Run & save everything
 
 output_folders = list_folders(segmentation_dir)
-file = output_folders[0]
 
-folder = os.path.join(segmentation_dir, file)
-
-individual_stacks = create_individual_binary_stacks(folder, view_binary_images=view_binary_images)
-
-print('Number of images:', len(individual_stacks))
-
-# Initialize a list to store final processed slices
+# Collect objects from ALL subfolders
 object_z_stacks = []
+object_source_names = []
+total_images = 0
 
-for entity in individual_stacks:
-    composite = entity
-    final_slices = []
-        
-    black_slide = np.zeros_like(composite[0])
+# If there are no subfolders, treat the root directory as a single folder
+if not output_folders:
+    output_folders = ['.']
 
-    for slice_idx in range(composite.shape[0]):
-        # Get the current slice
-        current_slice = composite[slice_idx]
-        
-        # Remove the singleton dimension (1024, 1024, 1) -> (1024, 1024)
-        current_slice = np.squeeze(current_slice)
-        
-        # Skip if the slice is completely black
-        if np.all(current_slice == 0):
-            # print(f"Skipping slice {slice_idx} as it's completely black")
-            continue
+for file in output_folders:
+    folder = os.path.join(segmentation_dir, file)
+    individual_stacks = create_individual_binary_stacks(folder, view_binary_images=view_binary_images)
+    total_images += len(individual_stacks)
 
-        largest_objects_mask = extract_largest_objects_masks(current_slice, min_object_area=2000)
-
-        # Special treatment for certain slices:
-        # if 16 <= slice_idx <= 33 :
-        #     noise_removed = replace_small_objects(largest_objects_mask, min_object_area=600, smooth_edges=True, sigma=2, no_smoothing_at_all=True) # sigma=2
-        #     processed_mask = replace_small_objects(noise_removed, min_object_area=400, smooth_edges=True, sigma=1, no_smoothing_at_all=True) # sigma=1
-
-        # if slice_idx == 62:
-        #     noise_removed = replace_small_objects(largest_objects_mask, min_object_area=5000, smooth_edges=True, sigma=2, no_smoothing_at_all=False) # sigma=2
-        #     processed_mask = replace_small_objects(noise_removed, min_object_area=2000, smooth_edges=True, sigma=1, no_smoothing_at_all=False) # sigma=1
-
-        # else:
-        noise_removed = replace_small_objects(largest_objects_mask, min_object_area=300, smooth_edges=True, sigma=2, no_smoothing_at_all=True) # sigma=2
-
-        # Smoothen and remove small holes
-        processed_mask = replace_small_objects(noise_removed, min_object_area=150, smooth_edges=True, sigma=1, no_smoothing_at_all=True) # sigma=1
-
-        # if slice_idx == 0:
-        #     final_image = extract_largest_objects_masks(processed_mask, min_object_area=6000)
-        # else:
-        final_image = extract_largest_objects_masks(processed_mask, min_object_area=3000)
-
-
-        # Append the final processed slice to the list
-        final_slices.append(final_image)
-
-        # Visualize the results (optional)
-        if view_slices:
-            plt.figure(figsize=(20, 7))
-            plt.subplot(1, 5, 1)
-            plt.imshow(current_slice, cmap="gray")
-            plt.title(f"Original Image (Slice {slice_idx})")
-            plt.axis("off")
-
-            plt.subplot(1, 5, 2)
-            plt.imshow(largest_objects_mask, cmap="gray")
-            plt.title(f"Largest Objects (Slice {slice_idx})")
-            plt.axis("off")
-
-            plt.subplot(1, 5, 3)
-            plt.imshow(noise_removed, cmap="gray")
-            plt.title(f"Holes filled and smoothed 1 (Slice {slice_idx})")
-            plt.axis("off")
+    for entity in individual_stacks:
+        composite = entity
+        final_slices = []
             
-            plt.subplot(1, 5, 4)
-            plt.imshow(processed_mask, cmap="gray")
-            plt.title(f"Holes filled and smoothed 2 (Slice {slice_idx})")
-            plt.axis("off")
+        black_slide = np.zeros_like(composite[0])
 
-            plt.subplot(1, 5, 5)
-            plt.imshow(final_image, cmap="gray")
-            plt.title(f"Final Largest Object (Slice {slice_idx})")
-            plt.axis("off")
+        for slice_idx in range(composite.shape[0]):
+            # Get the current slice
+            current_slice = composite[slice_idx]
             
-            plt.show()
+            # Remove the singleton dimension (1024, 1024, 1) -> (1024, 1024)
+            current_slice = np.squeeze(current_slice)
+            
+            # Skip if the slice is completely black
+            if np.all(current_slice == 0):
+                continue
 
-    # Stack the black slide at the beginning of the object_z_stack
-    object_z_stack_with_black = np.vstack([
-        black_slide[np.newaxis, ...],  # add batch dim (1, H, W)
-        final_slices,                 # original (Z, H, W)
-        black_slide[np.newaxis, ...]
-    ])
-    
-    object_z_stacks.append(object_z_stack_with_black)
+            largest_objects_mask = extract_largest_objects_masks(current_slice, min_object_area=2000)
+            noise_removed = replace_small_objects(largest_objects_mask, min_object_area=300, smooth_edges=True, sigma=2, no_smoothing_at_all=True) # sigma=2
+            processed_mask = replace_small_objects(noise_removed, min_object_area=150, smooth_edges=True, sigma=1, no_smoothing_at_all=True) # sigma=1
+            final_image = extract_largest_objects_masks(processed_mask, min_object_area=3000)
+
+            final_slices.append(final_image)
+
+            if view_slices:
+                plt.figure(figsize=(20, 7))
+                plt.subplot(1, 5, 1); plt.imshow(current_slice, cmap="gray"); plt.title(f"Original {slice_idx}"); plt.axis("off")
+                plt.subplot(1, 5, 2); plt.imshow(largest_objects_mask, cmap="gray"); plt.title("Largest"); plt.axis("off")
+                plt.subplot(1, 5, 3); plt.imshow(noise_removed, cmap="gray"); plt.title("Smooth1"); plt.axis("off")
+                plt.subplot(1, 5, 4); plt.imshow(processed_mask, cmap="gray"); plt.title("Smooth2"); plt.axis("off")
+                plt.subplot(1, 5, 5); plt.imshow(final_image, cmap="gray"); plt.title("Final"); plt.axis("off")
+                plt.show()
+
+        object_z_stack_with_black = np.vstack([
+            black_slide[np.newaxis, ...],
+            final_slices,
+            black_slide[np.newaxis, ...]
+        ])
+        
+        object_z_stacks.append(object_z_stack_with_black)
+        object_source_names.append(file)
+
+print('Number of images:', total_images)
 
 # Format of the output dataframe:
 """
@@ -638,7 +605,7 @@ objects_processed = 0
 
 for obj_idx, object_z_stack in enumerate(object_z_stacks):
 
-    lumenoid_df.loc[objects_processed,'file'] = file
+    lumenoid_df.loc[objects_processed,'file'] = object_source_names[obj_idx]
     lumenoid_df.loc[objects_processed,'object_id'] = obj_idx
 
     if control == -1:
@@ -718,23 +685,23 @@ for obj_idx, object_z_stack in enumerate(object_z_stacks):
     lumenoid_df.loc[objects_processed,'c_inner_ellipsoid'] = i_radii_opt[2]
 
     # Quantify the quality of fit by the Intersection over Union score
-    outer_mesh_pv = pv.wrap(outer_mesh)
-    outer_ellipsoid_pv = pv.wrap(o_ellipsoid_opt)
+    outer_mesh_pv = pv.wrap(outer_mesh).triangulate().clean()
+    outer_ellipsoid_pv = pv.wrap(o_ellipsoid_opt).triangulate().clean()
     intersection = outer_mesh_pv.boolean_intersection(outer_ellipsoid_pv)
     union = outer_mesh_pv.boolean_union(outer_ellipsoid_pv)
     vol_intersection = intersection.volume
     vol_union = union.volume
-    iou_outer_mesh = vol_intersection / vol_union
+    iou_outer_mesh = (vol_intersection / vol_union) if vol_union > 0 else 0.0
     lumenoid_df.loc[objects_processed,'iou_outer_mesh'] = iou_outer_mesh
     print("IoU of outer mesh:", iou_outer_mesh)
 
-    inner_mesh_pv = pv.wrap(inner_mesh)
-    inner_ellipsoid_pv = pv.wrap(i_ellipsoid_opt)
+    inner_mesh_pv = pv.wrap(inner_mesh).triangulate().clean()
+    inner_ellipsoid_pv = pv.wrap(i_ellipsoid_opt).triangulate().clean()
     intersection = inner_mesh_pv.boolean_intersection(inner_ellipsoid_pv)
     union = inner_mesh_pv.boolean_union(inner_ellipsoid_pv)
     vol_intersection = intersection.volume
     vol_union = union.volume
-    iou_inner_mesh = vol_intersection / vol_union
+    iou_inner_mesh = (vol_intersection / vol_union) if vol_union > 0 else 0.0
     lumenoid_df.loc[objects_processed,'iou_inner_mesh'] = iou_inner_mesh
     print("IoU of inner mesh:", iou_inner_mesh)
 
@@ -771,6 +738,16 @@ for obj_idx, object_z_stack in enumerate(object_z_stacks):
 
 # write the results to the CSV file
 lumenoid_df.to_csv(csv_file)
+
+# Simple summary log
+try:
+    iou_o_mean = pd.to_numeric(lumenoid_df['iou_outer_mesh'], errors='coerce').dropna().mean()
+    iou_i_mean = pd.to_numeric(lumenoid_df['iou_inner_mesh'], errors='coerce').dropna().mean()
+except Exception:
+    iou_o_mean, iou_i_mean = float('nan'), float('nan')
+print(f"[INFO] Results written to: {csv_file}")
+print(f"[INFO] Objects processed: {objects_processed} | Ellipsoids fit: {objects_processed * 2}")
+print(f"[INFO] Mean IoU outer: {iou_o_mean:.3f} | Mean IoU inner: {iou_i_mean:.3f}")
 
 # optional: view the fitted ellipsoids with PyVista
 if view_result:
