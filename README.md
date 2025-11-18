@@ -79,6 +79,8 @@ Note: the output is a csv file with one row each lumen and columns representing 
    (e.g. /Users/jenaalsup/Desktop/CKHRJQ~2.TIF)
 
 2. Run the segmentation
+   ```
    python3 segment-outer.py (expect this to take ~2-3 minutes)
+   ```
    
 Note: Deprecated b/c requires finetuning most images
