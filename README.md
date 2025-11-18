@@ -1,7 +1,7 @@
 ## Overview
-This project provides a simple pipeline for segmenting lumen cavities from 3D `.tif` stacks and fitting ellipses to their inner and outer boundaries. The goal is to extract geometric features of each lumen (e.g., major/minor axes, aspect ratio, orientation) for downstream analysis of lumenoid morphology. Segmentation is done manually-assisted using Napari with the nninteractive plugin, and the resulting masks are processed by a Python script that performs ellipse fitting. This repository includes instructions for inner cavity segmentation, outer boundary segmentation, and running the final ellipse analysis.
+This project provides a simple pipeline for segmenting lumen cavities from 3D `.tif` stacks and fitting ellipses to their inner and outer boundaries. The goal is to extract geometric features of each lumen (e.g., major/minor axes, aspect ratio, orientation) for downstream analysis of lumenoid morphology. Segmentation is done manually-assisted using Napari with the [nnInteractive](https://github.com/MIC-DKFZ/nnInteractive) plugin, and the resulting masks are processed by a Python script that performs ellipse fitting. This repository includes instructions for inner cavity segmentation, outer boundary segmentation, and running the final ellipse analysis.
 
-## Inner cavity segmentation (with Napari/nninteractive)
+## Inner cavity segmentation (with Napari/nnInteractive)
 
 1. Open Anaconda Prompt  
    (On Windows, click the Start button and search for "Anaconda Prompt")
@@ -17,7 +17,7 @@ This project provides a simple pipeline for segmenting lumen cavities from 3D `.
    conda activate nninteractive
    ```
 
-5. Install Napari and the nninteractive plugin  
+5. Install Napari and the nnInteractive plugin  
    ```
    pip install "napari[all]" napari-nninteractive
    ```
@@ -26,11 +26,11 @@ This project provides a simple pipeline for segmenting lumen cavities from 3D `.
    ```
    napari -w napari-nninteractive
    ```
-   This opens the Napari GUI with the nninteractive plugin already open.
+   This opens the Napari GUI with the nnInteractive plugin already open.
 
 7. Drag the raw .tif file into the GUI (any number of lumens ok).
 
-8. Press Initialize in the right-side panel. This will open an nninteractive label layer that looks like the screenshot below:  
+8. Press Initialize in the right-side panel. This will open an nnInteractive label layer that looks like the screenshot below:  
    <img width="2171" height="1308" alt="Screenshot 2025-11-09 153413" src="https://github.com/user-attachments/assets/0349e7d0-f95e-4fe2-b7f9-465d590b0325" />
 
 9. Under "Prompt type", select "Positive", and under "Interaction tools", select "Point".
@@ -44,7 +44,7 @@ This project provides a simple pipeline for segmenting lumen cavities from 3D `.
 11. Go to File > Save Selected Layer(s) and choose the Labels layer.
 
 
-## Outer cavity segmentation (with Napari/nninteractive)
+## Outer cavity segmentation (with Napari/nnInteractive)
 The setup and workflow are the same as the Inner cavity segmentation section, with just a few differences:
 - Use ~3–5 positive points per lumen (more than for inner) to fill the entire outer boundary (including the inner cavity too).
 - Save each lumen as its own file:
