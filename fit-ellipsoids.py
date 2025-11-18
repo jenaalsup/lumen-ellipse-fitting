@@ -7,7 +7,7 @@ Prerequisites
 pip install tifffile pandas numpy matplotlib pyvista trimesh pymeshfix napari
 export SEGMENTATION_DIR="..." # path to the segmentation directory e.g. /Users/jenaalsup/Desktop/analysis/nn_interactive/output_differentiation/second_batch/d2_out
 
-python3 image_analysis.py
+python3 fit-ellipsoids.py
 """
 
 import os
@@ -35,7 +35,7 @@ import napari
 # --------------------------------------------------- #
 # Config
 # --------------------------------------------------- #
-segmentation_dir = os.environ.get("SEGMENTATION_DIR", "/Users/jenaalsup/Desktop/segmentation-testing/CKHRJQ~0.tif")
+segmentation_dir = os.environ.get("SEGMENTATION_DIR", "/Users/jenaalsup/Desktop/segmentation-testing/")
 _base_name = os.path.basename(os.path.normpath(segmentation_dir))
 csv_file = f"{_base_name}_results.csv" # output file derived from input directory name
 

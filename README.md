@@ -65,7 +65,7 @@ The setup and workflow are the same as the Inner cavity segmentation section, wi
    
 3. Run the ellipse analysis
    ```
-   python3 image_analysis.py
+   python3 fit-ellipsoids.py
    ```
 
 Note: the output is a csv file with one row each lumen and columns representing the parameters for both the inner and outer ellipse
